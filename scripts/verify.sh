@@ -36,20 +36,27 @@ fi
 # --- 2. PHP version & config ---
 echo "[2/6] PHP Configuration"
 BODY=$(curl -s "${TARGET}/index.php" --max-time 5 2>/dev/null || echo "")
-if echo "$BODY" | grep -q "PHP Version"; then
-    PHP_VER=$(echo "$BODY" | grep -oP 'PHP Version:\s*\K[\d.]+' | head -1)
+# NB: grep reads from a here-string, not a pipe. Under `set -o pipefail`, piping a
+# 70 KB body into `grep -q` reports 141 (SIGPIPE) when grep exits on the first
+# match, which turned these checks into false failures.
+if grep -q "PHP Version" <<< "$BODY"; then
+    if [[ $BODY =~ PHP\ Version\</td\>\<td\>([0-9.]+) ]]; then
+        PHP_VER="${BASH_REMATCH[1]}"
+    else
+        PHP_VER=""
+    fi
     pass "PHP ${PHP_VER:-unknown} detected"
 else
     fail "Cannot detect PHP version"
 fi
 
-if echo "$BODY" | grep -q "upload_progress:.*ON"; then
+if grep -q "upload_progress</td><td>ON" <<< "$BODY"; then
     pass "session.upload_progress.enabled = ON"
 else
     fail "session.upload_progress not ON"
 fi
 
-if echo "$BODY" | grep -q "progress.cleanup:.*OFF"; then
+if grep -q "progress.cleanup</td><td>OFF" <<< "$BODY"; then
     pass "session.upload_progress.cleanup = OFF"
 else
     fail "session.upload_progress.cleanup not OFF"
@@ -67,7 +74,7 @@ fi
 # --- 4. LFI endpoint ---
 echo "[4/6] LFI Endpoint"
 LFI_RESP=$(curl -s "${TARGET}/view.php?file=/etc/hostname" --max-time 5 2>/dev/null || echo "")
-if [ -n "$LFI_RESP" ] && ! echo "$LFI_RESP" | grep -q "Warning.*include"; then
+if [ -n "$LFI_RESP" ] && ! grep -q "Warning.*include" <<< "$LFI_RESP"; then
     pass "LFI working (/etc/hostname included)"
 else
     info "LFI returned warning or empty — check file permissions"
@@ -90,7 +97,7 @@ fi
 
 # Check if session file was created
 SESS_CHECK=$(curl -s "${TARGET}/debug.php" --max-time 5 2>/dev/null || echo "")
-if echo "$SESS_CHECK" | grep -q "sess_${SID}"; then
+if grep -q "sess_${SID}" <<< "$SESS_CHECK"; then
     pass "Session file created: sess_${SID}"
 else
     fail "Session file not found — upload_progress may not be writing"
@@ -101,7 +108,7 @@ echo "[6/6] Full RCE Chain"
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)/exploit"
 if [ -f "${SCRIPT_DIR}/php2shell.py" ]; then
     RCE_OUTPUT=$(python3 "${SCRIPT_DIR}/php2shell.py" -t "${TARGET}" -c "echo php2shell_verify" -q 2>&1 || echo "")
-    if echo "$RCE_OUTPUT" | grep -q "php2shell_verify"; then
+    if grep -q "php2shell_verify" <<< "$RCE_OUTPUT"; then
         pass "RCE confirmed — command output received"
     else
         fail "RCE chain did not return expected output"

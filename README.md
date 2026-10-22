@@ -74,6 +74,8 @@ The v5.0 exploit implements **9 independent RCE chains**, each exploiting differ
 | **8** | PHP Wrappers | `allow_url_include=On` + LFI | Yes | High |
 | **9** | UAF Disturbance Race | `upload_progress=On` + session pages | Optional | Low |
 
+Chains 1, 2 and 9 depend on the target accepting an attacker-supplied session ID with `session.upload_progress` enabled. The exploit now *verifies* that instead of assuming it: it writes a marker into a named session file and reads it back through the LFI. If that check fails, those chains are reported as **skipped** rather than attempted blind — a skipped or `INCONCLUSIVE` chain is explicitly not a clean result. `--chain N` forces one anyway.
+
 ### Auto-Exploit Flow
 
 ```
@@ -189,9 +191,11 @@ The Docker lab provides a deliberately vulnerable PHP environment:
 | Component | Version | Notes |
 |---|---|---|
 | Ubuntu | 22.04 LTS | Base image |
-| PHP | 8.4.26 | Last vulnerable release before 8.4.27 fix |
+| PHP | 8.4.27 | Tracked from the ondrej PPA |
 | nginx | Latest in repo | Reverse proxy to php-fpm |
 | PHP-FPM | 8.4.26 | FastCGI process manager |
+
+> **Version note:** the ondrej PPA only carries the current 8.4.x, so a fresh build resolves to 8.4.27 — the release that *fixes* the core UAF. The application-level chains (session poisoning via `view.php`, log poisoning, wrappers) still work against it, which is what `verify.sh` exercises, but the heap-UAF chains 3 and 9 need a host actually running 8.4.26 or earlier. Pin the version from an archive if you need to reproduce the UAF itself.
 
 ### Vulnerable Configuration (php.ini)
 
